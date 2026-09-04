@@ -3,6 +3,7 @@ from pathlib import Path
 
 import chess
 
+from harness.pgn import DEFAULT_PGN_DIR, save_pgn
 from harness.referee import play_match
 from harness.rules import BASE_MS, INCREMENT_MS, PLY_CAP
 from harness.sandbox import local
@@ -17,6 +18,7 @@ def main() -> None:
     parser.add_argument("--ply-cap", type=int, default=PLY_CAP)
     parser.add_argument("--fen", default=chess.STARTING_FEN)
     parser.add_argument("--pgn", type=Path)
+    parser.add_argument("--pgn-dir", type=Path, default=DEFAULT_PGN_DIR)
     arguments = parser.parse_args()
 
     white = local(arguments.white)
@@ -37,6 +39,16 @@ def main() -> None:
     if arguments.pgn:
         arguments.pgn.write_text(outcome.pgn + "\n")
         print(f"pgn written to {arguments.pgn}")
+    else:
+        pgn_path = save_pgn(
+            arguments.pgn_dir,
+            outcome.pgn,
+            arguments.white.resolve(),
+            arguments.black.resolve(),
+            arguments.base_ms,
+            arguments.increment_ms,
+        )
+        print(f"pgn written to {pgn_path}")
 
 
 if __name__ == "__main__":

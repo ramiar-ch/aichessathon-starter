@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+from harness.pgn import DEFAULT_PGN_DIR, save_pgn
 from harness.referee import FAILED_TERMINATIONS, play_match
 from harness.rules import PLY_CAP
 from harness.sandbox import local
@@ -17,10 +18,12 @@ def main() -> None:
     parser.add_argument("--base-ms", type=int, default=FAST_BASE_MS)
     parser.add_argument("--increment-ms", type=int, default=FAST_INCREMENT_MS)
     parser.add_argument("--ply-cap", type=int, default=PLY_CAP)
+    parser.add_argument("--pgn-dir", type=Path, default=DEFAULT_PGN_DIR)
     arguments = parser.parse_args()
 
     agent = arguments.agent.resolve()
     opponent = arguments.opponent.resolve()
+    arguments.pgn_dir.mkdir(parents=True, exist_ok=True)
     wins = draws = losses = 0
     terminations: dict[str, int] = {}
 
@@ -34,6 +37,15 @@ def main() -> None:
             arguments.increment_ms,
             ply_cap=arguments.ply_cap,
         )
+        pgn_path = save_pgn(
+            arguments.pgn_dir,
+            outcome.pgn,
+            white,
+            black,
+            arguments.base_ms,
+            arguments.increment_ms,
+            game + 1,
+        )
         terminations[outcome.termination] = terminations.get(outcome.termination, 0) + 1
         if outcome.result == "draw" or outcome.result == "void":
             draws += 1
@@ -41,7 +53,10 @@ def main() -> None:
             wins += 1
         else:
             losses += 1
-        print(f"game {game + 1}/{arguments.games}: {outcome.result} by {outcome.termination}")
+        print(
+            f"game {game + 1}/{arguments.games}: {outcome.result} by {outcome.termination}"
+            f" ({pgn_path})"
+        )
 
     score = (wins + draws / 2) / arguments.games
     print(f"\n{arguments.agent} vs {arguments.opponent} over {arguments.games} games")

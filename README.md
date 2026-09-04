@@ -31,7 +31,14 @@ make arena                                         # 20 fast games, prints a sco
 make play FEN="<fen>"                              # start from a given position
 uv run python -m harness.play --black baselines/minimax --pgn game.pgn
 uv run python -m harness.arena --opponent ../my-old-version --games 200
+uv run python -m harness.arena --opponent baselines/greedy --games 20
 ```
+
+Games are saved automatically in `/Users/ramiar/Projects/chessathon/game-data`. Arena games use
+descriptive names such as `20260904T174959+0100__aichessathon-starter-vs-greedy__game-001.pgn`.
+The PGN headers include the matchup, date, time, time control, result, and termination reason.
+Use `--pgn-dir PATH` to override the default directory, or `--pgn PATH` with `harness.play` to
+choose an exact output filename for one game.
 
 Anything your agent prints shows up under the result, so `print` debugging works. The platform
 keeps it too. Every rated game leaves a log on your dashboard next to the PGN, holding your

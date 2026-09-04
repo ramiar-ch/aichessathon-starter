@@ -1,12 +1,51 @@
 """The submission entrypoint. The platform imports this file and calls get_move."""
-
+import math
 import random
 
 import chess
+import numpy as np
+from numba import njit
+
+
+PIECE_VALUE = np.array([0, 100, 320, 330, 500, 900, 0], dtype=np.int32)
+MOBILITY_WEIGHT = 4
+MATE = 1e6
 
 # Import time runs once per game, inside a 60 second budget, before your clock starts.
 # Load weights and build tables out here, not inside get_move.
 
+@njit(cache=False)
+def evaluate(pieces: np.ndarray, mine: np.ndarray, mobility: int) -> int:
+    material = 0
+    for square in range(64):
+        piece = pieces[square]
+        if piece == 0:
+            continue
+        value = PIECE_VALUE[piece]
+        material += value if mine[square] else -value
+    return material + MOBILITY_WEIGHT * mobility
+
+def encode(board: chess.Board) -> tuple[np.ndarray, np.ndarray]:
+    pieces = np.zeros(64, dtype=np.int32)
+    mine = np.zeros(64, dtype=np.bool_)
+    for square, piece in board.piece_map().items():
+        pieces[square] = piece.piece_type
+        mine[square] = piece.color == board.turn
+    return pieces, mine
+
+def negamax(board: chess.Board, depth: int) -> float:
+    moves = list(board.legal_moves)
+    if not moves:
+        return -MATE if board.is_check() else 0.0
+    if depth == 0:
+        pieces, mine = encode(board)
+        return float(evaluate(pieces, mine, len(moves)))
+    best = -math.inf
+    for move in moves:
+        board.push(move)
+        best = max(best, -negamax(board, depth - 1))
+        board.pop()
+    return best
 
 def get_move(fen: str, time_left_ms: int) -> str:
     """Return a legal move in UCI notation.
@@ -22,8 +61,22 @@ def get_move(fen: str, time_left_ms: int) -> str:
     during rated games and shown back to you in the validation log.
     """
     board = chess.Board(fen)
-
+    
     # Everything from here down is yours to replace. baselines/greedy searches one ply,
     # baselines/minimax searches two. Neither is strong. Reading them is the fastest way
     # to see the shape of a search, and beating them is the first real milestone.
-    return random.choice(list(board.legal_moves)).uci()
+
+    best_score = -math.inf
+    best: list[chess.Move] = []
+    for move in board.legal_moves:
+        board.push(move)
+        score = -negamax(board, 1)
+        board.pop()
+        if score > best_score:
+            best_score = score
+            best = [move]
+        elif score == best_score:
+            best.append(move)
+    return random.choice(best).uci()
+
+evaluate(*encode(chess.Board()), 20)

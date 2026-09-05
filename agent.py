@@ -12,7 +12,16 @@ PIECE_VALUE = np.array([0, 100, 320, 330, 500, 900, 0], dtype=np.int32)
 PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING = 1, 2, 3, 4, 5, 6
 MOBILITY_WEIGHT = 4
 MATE = 1e6
- 
+
+INF = 10 ** 9
+MATE = 100_000
+MATE_BOUND = MATE - 1000
+
+PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING = 1, 2, 3, 4, 5, 6
+PIECE_VALUE = [0, 100, 320, 330, 500, 900, 0]
+PHASE_W = [0, 0, 1, 1, 2, 4, 0]
+TOTAL_PHASE = 24
+
 # --- Piece-square tables -----------------------------------------------------
 # Indexed 0 (a1) .. 63 (h8), from White's perspective: a bonus/penalty in centipawns
 # for a piece of that type standing on that square, on top of its raw material value.
@@ -20,7 +29,8 @@ MATE = 1e6
 # the standard trick for reusing a White-oriented table for the mirrored side).
 # These are the widely-used "simplified evaluation function" tables
 # (chessprogramming.org) -- a reasonable starting point, not hand-tuned for this eval.
-PAWN_PST = np.array([
+
+_PAWN_MG = [
      0,  0,  0,  0,  0,  0,  0,  0,
      5, 10, 10,-20,-20, 10, 10,  5,
      5, -5,-10,  0,  0,-10, -5,  5,
@@ -29,9 +39,18 @@ PAWN_PST = np.array([
     10, 10, 20, 30, 30, 20, 10, 10,
     50, 50, 50, 50, 50, 50, 50, 50,
      0,  0,  0,  0,  0,  0,  0,  0,
-], dtype=np.int32)
- 
-KNIGHT_PST = np.array([
+]
+_PAWN_EG = [
+     0,  0,  0,  0,  0,  0,  0,  0,
+     0,  0,  0,  0,  0,  0,  0,  0,
+     5,  5,  5,  5,  5,  5,  5,  5,
+    10, 10, 10, 10, 10, 10, 10, 10,
+    25, 25, 25, 25, 25, 25, 25, 25,
+    50, 50, 50, 50, 50, 50, 50, 50,
+    80, 80, 80, 80, 80, 80, 80, 80,
+     0,  0,  0,  0,  0,  0,  0,  0,
+]
+_KNIGHT = [
     -50,-40,-30,-30,-30,-30,-40,-50,
     -40,-20,  0,  5,  5,  0,-20,-40,
     -30,  5, 10, 15, 15, 10,  5,-30,
@@ -40,9 +59,8 @@ KNIGHT_PST = np.array([
     -30,  0, 10, 15, 15, 10,  0,-30,
     -40,-20,  0,  0,  0,  0,-20,-40,
     -50,-40,-30,-30,-30,-30,-40,-50,
-], dtype=np.int32)
- 
-BISHOP_PST = np.array([
+]
+_BISHOP = [
     -20,-10,-10,-10,-10,-10,-10,-20,
     -10,  5,  0,  0,  0,  0,  5,-10,
     -10, 10, 10, 10, 10, 10, 10,-10,
@@ -51,9 +69,8 @@ BISHOP_PST = np.array([
     -10,  0,  5, 10, 10,  5,  0,-10,
     -10,  0,  0,  0,  0,  0,  0,-10,
     -20,-10,-10,-10,-10,-10,-10,-20,
-], dtype=np.int32)
- 
-ROOK_PST = np.array([
+]
+_ROOK = [
      0,  0,  0,  5,  5,  0,  0,  0,
     -5,  0,  0,  0,  0,  0,  0, -5,
     -5,  0,  0,  0,  0,  0,  0, -5,
@@ -62,9 +79,8 @@ ROOK_PST = np.array([
     -5,  0,  0,  0,  0,  0,  0, -5,
      5, 10, 10, 10, 10, 10, 10,  5,
      0,  0,  0,  0,  0,  0,  0,  0,
-], dtype=np.int32)
- 
-QUEEN_PST = np.array([
+]
+_QUEEN = [
     -20,-10,-10, -5, -5,-10,-10,-20,
     -10,  0,  5,  0,  0,  0,  0,-10,
     -10,  5,  5,  5,  5,  5,  0,-10,
@@ -73,9 +89,8 @@ QUEEN_PST = np.array([
     -10,  0,  5,  5,  5,  5,  0,-10,
     -10,  0,  0,  0,  0,  0,  0,-10,
     -20,-10,-10, -5, -5,-10,-10,-20,
-], dtype=np.int32)
- 
-KING_MID_PST = np.array([
+]
+_KING_MG = [
      20, 30, 10,  0,  0, 10, 30, 20,
      20, 20,  0,  0,  0,  0, 20, 20,
     -10,-20,-20,-20,-20,-20,-20,-10,
@@ -84,9 +99,8 @@ KING_MID_PST = np.array([
     -30,-40,-40,-50,-50,-40,-40,-30,
     -30,-40,-40,-50,-50,-40,-40,-30,
     -30,-40,-40,-50,-50,-40,-40,-30,
-], dtype=np.int32)
- 
-KING_END_PST = np.array([
+]
+_KING_EG = [
     -50,-30,-30,-30,-30,-30,-30,-50,
     -30,-30,  0,  0,  0,  0,-30,-30,
     -30,-10, 20, 30, 30, 20,-10,-30,
@@ -95,233 +109,378 @@ KING_END_PST = np.array([
     -30,-10, 20, 30, 30, 20,-10,-30,
     -30,-20,-10,  0,  0,-10,-20,-30,
     -50,-40,-30,-20,-20,-30,-40,-50,
-], dtype=np.int32)
+]
 
-# Below this much combined non-pawn material (both sides, kings excluded), the king's
-# table switches from "stay tucked behind pawns" (middlegame) to "get active, head for
-# the centre" (endgame). A coarse on/off switch rather than a smooth taper -- fine for
-# now, worth revisiting once the rest of the eval is solid.
-ENDGAME_MATERIAL_THRESHOLD = 1700
-    
-# --- Time management tuning -------------------------------------------------
-# Time control per the brief: 120s + 0.5s/move. time_left_ms is BEFORE this move's
-# increment is added, but the increment is guaranteed regardless of how low the
-# clock gets, so we plan on spending most of it every move.
+_MG_SRC = [None, _PAWN_MG, _KNIGHT, _BISHOP, _ROOK, _QUEEN, _KING_MG]
+_EG_SRC = [None, _PAWN_EG, _KNIGHT, _BISHOP, _ROOK, _QUEEN, _KING_EG]
 
-INCREMENT_MS = 500
-MOVES_DIVISOR = 30          # crude "assume ~30 moves left" budget split of the base clock
-MOVE_OVERHEAD_MS = 50       # safety margin subtracted for interprocess/GC/wire overhead
-MIN_BUDGET_MS = 10          # always try for at least this much, even in extreme time trouble
-TIME_CHECK_INTERVAL = 1024  # check the clock every N nodes, not every node (perf_counter has cost)
-MAX_DEPTH = 64              # hard ceiling; the time budget will stop us long before this
-
-# --- Move ordering tuning ----------------------------------------------------
-# Captures and promotions are searched before quiet moves. This is what makes alpha-beta
-# pruning actually cut the tree: a cutoff only happens once we've found a move good enough
-# to prove the rest of the branch irrelevant, and the biggest, most forcing swings in
-# material are the moves most likely to be that good.
-
-CAPTURE_BASE = 10_000
-PROMOTION_BASE = 20_000
-
+# Flattened value+PST tables: TABLE[colour][pt * 64 + square].
+MG_TAB = [[0] * 448, [0] * 448]
+EG_TAB = [[0] * 448, [0] * 448]
+for _pt in range(1, 7):
+    for _sq in range(64):
+        MG_TAB[1][_pt * 64 + _sq] = PIECE_VALUE[_pt] + _MG_SRC[_pt][_sq]
+        EG_TAB[1][_pt * 64 + _sq] = PIECE_VALUE[_pt] + _EG_SRC[_pt][_sq]
+        MG_TAB[0][_pt * 64 + _sq] = PIECE_VALUE[_pt] + _MG_SRC[_pt][_sq ^ 56]
+        EG_TAB[0][_pt * 64 + _sq] = PIECE_VALUE[_pt] + _EG_SRC[_pt][_sq ^ 56]
+ 
+FILE_MASK = [chess.BB_FILES[f] for f in range(8)]
+ADJ_FILE = [
+    (FILE_MASK[f - 1] if f > 0 else 0) | (FILE_MASK[f + 1] if f < 7 else 0)
+    for f in range(8)
+]
+PASSED_MASK = [[0] * 64, [0] * 64]
+for _sq in range(64):
+    _f, _r = chess.square_file(_sq), chess.square_rank(_sq)
+    _span = FILE_MASK[_f] | ADJ_FILE[_f]
+    _ahead_w = 0
+    _ahead_b = 0
+    for _rr in range(_r + 1, 8):
+        _ahead_w |= chess.BB_RANKS[_rr]
+    for _rr in range(0, _r):
+        _ahead_b |= chess.BB_RANKS[_rr]
+    PASSED_MASK[1][_sq] = _span & _ahead_w
+    PASSED_MASK[0][_sq] = _span & _ahead_b
+ 
+PASSED_BONUS_MG = [0, 5, 10, 20, 35, 60, 100, 0]
+PASSED_BONUS_EG = [0, 10, 20, 35, 60, 100, 160, 0]
+BISHOP_PAIR = 30
+DOUBLED = -12
+ISOLATED = -14
+ROOK_OPEN = 22
+ROOK_SEMI = 11
+TEMPO = 12
+ 
+popcount = chess.popcount
+scan = chess.scan_reversed
+ 
+_pawn_cache = {}
+ 
+ 
+def _pawn_structure(wp, bp):
+    hit = _pawn_cache.get((wp, bp))
+    if hit is not None:
+        return hit
+    mg = eg = 0
+    for colour, own, opp, sign in ((1, wp, bp, 1), (0, bp, wp, -1)):
+        for sq in scan(own):
+            f = chess.square_file(sq)
+            if not (PASSED_MASK[colour][sq] & opp):
+                rel = chess.square_rank(sq) if colour else 7 - chess.square_rank(sq)
+                mg += sign * PASSED_BONUS_MG[rel]
+                eg += sign * PASSED_BONUS_EG[rel]
+            if not (ADJ_FILE[f] & own):
+                mg += sign * ISOLATED
+                eg += sign * ISOLATED
+        for f in range(8):
+            n = popcount(own & FILE_MASK[f])
+            if n > 1:
+                mg += sign * DOUBLED * (n - 1)
+                eg += sign * DOUBLED * (n - 1)
+    if len(_pawn_cache) > 200000:
+        _pawn_cache.clear()
+    _pawn_cache[(wp, bp)] = (mg, eg)
+    return mg, eg
+ 
+ 
+def evaluate(board):
+    occ_w = board.occupied_co[True]
+    occ_b = board.occupied_co[False]
+    mg = eg = 0
+    phase = 0
+    mgw = MG_TAB[1]
+    egw = EG_TAB[1]
+    mgb = MG_TAB[0]
+    egb = EG_TAB[0]
+    for pt, bb in ((PAWN, board.pawns), (KNIGHT, board.knights), (BISHOP, board.bishops),
+                   (ROOK, board.rooks), (QUEEN, board.queens), (KING, board.kings)):
+        base = pt * 64
+        w = bb & occ_w
+        b = bb & occ_b
+        for sq in scan(w):
+            mg += mgw[base + sq]
+            eg += egw[base + sq]
+        for sq in scan(b):
+            mg -= mgb[base + sq]
+            eg -= egb[base + sq]
+        phase += PHASE_W[pt] * (popcount(w) + popcount(b))
+ 
+    if popcount(board.bishops & occ_w) > 1:
+        mg += BISHOP_PAIR
+        eg += BISHOP_PAIR
+    if popcount(board.bishops & occ_b) > 1:
+        mg -= BISHOP_PAIR
+        eg -= BISHOP_PAIR
+ 
+    wp = board.pawns & occ_w
+    bp = board.pawns & occ_b
+    pmg, peg = _pawn_structure(wp, bp)
+    mg += pmg
+    eg += peg
+ 
+    all_pawns = wp | bp
+    for sq in scan(board.rooks & occ_w):
+        fm = FILE_MASK[chess.square_file(sq)]
+        if not (fm & all_pawns):
+            mg += ROOK_OPEN
+        elif not (fm & wp):
+            mg += ROOK_SEMI
+    for sq in scan(board.rooks & occ_b):
+        fm = FILE_MASK[chess.square_file(sq)]
+        if not (fm & all_pawns):
+            mg -= ROOK_OPEN
+        elif not (fm & bp):
+            mg -= ROOK_SEMI
+ 
+    if phase > TOTAL_PHASE:
+        phase = TOTAL_PHASE
+    score = (mg * phase + eg * (TOTAL_PHASE - phase)) // TOTAL_PHASE
+    if not board.turn:
+        score = -score
+    return score + TEMPO
+ 
+ 
 class TimeUp(Exception):
-    """Raised inside the search once this move's deadline has passed."""
-
-@njit(cache=False)
-def evaluate(pieces: np.ndarray, mine: np.ndarray, white_to_move: bool, mobility: int) -> int:
-    material = 0
-    pst_score = 0
-    non_pawn_material = 0
-    white_king_sq = -1
-    black_king_sq = -1
+    pass
  
-    for square in range(64):
-        piece = pieces[square]
-        if piece == 0:
-            continue
  
-        # mine[square] tells us whose piece it is, relative to the side to move --
-        # that's what the +/- sign below needs. is_white tells us its literal colour,
-        # which is what PST mirroring needs, and is recoverable from the other two:
-        # mine == (colour == white_to_move), so colour == (mine == white_to_move).
-        is_white = mine[square] == white_to_move
-        sign = 1 if mine[square] else -1
-        material += sign * PIECE_VALUE[piece]
+TT = {}
+HISTORY = {}
+GAME_KEYS = {}
  
-        if piece == KING:
-            # King's PST bonus depends on game phase, which we only know once the
-            # whole board has been scanned -- handled after this loop.
-            if is_white:
-                white_king_sq = square
-            else:
-                black_king_sq = square
-            continue
+TT_EXACT, TT_LOWER, TT_UPPER = 0, 1, 2
+MVV = [0, 100, 320, 330, 500, 900, 2000]
  
-        pst_square = square if is_white else (square ^ 56)
-        if piece == PAWN:
-            bonus = PAWN_PST[pst_square]
-        elif piece == KNIGHT:
-            bonus = KNIGHT_PST[pst_square]
-        elif piece == BISHOP:
-            bonus = BISHOP_PST[pst_square]
-        elif piece == ROOK:
-            bonus = ROOK_PST[pst_square]
-        else:  # QUEEN
-            bonus = QUEEN_PST[pst_square]
-        pst_score += sign * bonus
  
-        if piece != PAWN:
-            non_pawn_material += PIECE_VALUE[piece]
- 
-    endgame = non_pawn_material <= ENDGAME_MATERIAL_THRESHOLD
-    king_pst = KING_END_PST if endgame else KING_MID_PST
- 
-    if white_king_sq >= 0:
-        sign = 1 if white_to_move else -1
-        pst_score += sign * king_pst[white_king_sq]
-    if black_king_sq >= 0:
-        sign = -1 if white_to_move else 1
-        pst_score += sign * king_pst[black_king_sq ^ 56]
- 
-    return material + pst_score + MOBILITY_WEIGHT * mobility
-
-
-def encode(board: chess.Board) -> tuple[np.ndarray, np.ndarray]:
-    pieces = np.zeros(64, dtype=np.int32)
-    mine = np.zeros(64, dtype=np.bool_)
-    for square, piece in board.piece_map().items():
-        pieces[square] = piece.piece_type
-        mine[square] = piece.color == board.turn
-    return pieces, mine
-
-def move_priority(board: chess.Board, move: chess.Move) -> int:
-    """Higher sorts first. Captures ranked by MVV-LVA (Most Valuable Victim, Least
-    Valuable Attacker) -- capturing a queen with a pawn ranks far above capturing a
-    pawn with a queen, even though both are "a capture". Promotions get their own
-    boost since they're similarly forcing. Quiet moves score 0 and sort last, in
-    whatever order legal_moves produced them (no ordering among them yet)."""
-    priority = 0
-    if move.promotion:
-        priority += PROMOTION_BASE + int(PIECE_VALUE[move.promotion])
-    if board.is_capture(move):
-        if board.is_en_passant(move):
-            victim_type = chess.PAWN
-        else:
-            victim_type = board.piece_type_at(move.to_square)
-        attacker_type = board.piece_type_at(move.from_square)
-        priority += CAPTURE_BASE + int(PIECE_VALUE[victim_type]) * 10 - int(PIECE_VALUE[attacker_type])
-    return priority
-
-def order_moves(board: chess.Board, moves: list[chess.Move]) -> list[chess.Move]:
-    return sorted(moves, key=lambda move: move_priority(board, move), reverse=True)
-
 class Searcher:
-    """Holds per-move search state (node counter + deadline) so negamax can check the
-    clock without threading a deadline argument through every recursive call."""
- 
-    def __init__(self, deadline: float):
+    def __init__(self, deadline, rep):
         self.deadline = deadline
         self.nodes = 0
+        self.rep = rep
+        self.killers = [[None, None] for _ in range(128)]
+        self.stop = False
  
-    def check_time(self) -> None:
+    def check(self):
         self.nodes += 1
-        if self.nodes % TIME_CHECK_INTERVAL == 0 and time.perf_counter() >= self.deadline:
+        if not self.nodes & 2047 and time.perf_counter() >= self.deadline:
             raise TimeUp
  
- 
-    def negamax(self, board: chess.Board, depth: int, alpha: float, beta: float) -> float:
-        self.check_time()
-        moves = list(board.legal_moves)
-        if not moves:
-            return -MATE if board.is_check() else 0.0
-        if depth == 0:
-            pieces, mine = encode(board)
-            return float(evaluate(pieces, mine, board.turn, len(moves)))
- 
-        value = -math.inf
-        for move in order_moves(board, moves):
-            board.push(move)
+    def qsearch(self, board, alpha, beta):
+        self.check()
+        stand = evaluate(board)
+        if stand >= beta:
+            return stand
+        if stand > alpha:
+            alpha = stand
+        best = stand
+        caps = []
+        for m in board.generate_legal_captures():
+            victim = PAWN if board.is_en_passant(m) else board.piece_type_at(m.to_square)
+            s = MVV[victim] * 16 - MVV[board.piece_type_at(m.from_square)]
+            if m.promotion:
+                s += 10000 + PIECE_VALUE[m.promotion]
+            if stand + MVV[victim] + 200 < alpha and not m.promotion:
+                continue  # delta pruning
+            caps.append((s, m))
+        caps.sort(key=lambda t: t[0], reverse=True)
+        for _, m in caps:
+            board.push(m)
             try:
-                value = max(value, -self.negamax(board, depth - 1, -beta, -alpha))
+                v = -self.qsearch(board, -beta, -alpha)
             finally:
                 board.pop()
-            if value > alpha:
-                alpha = value
+            if v > best:
+                best = v
+            if v > alpha:
+                alpha = v
             if alpha >= beta:
-                break  # beta cutoff: the opponent already has a better option elsewhere
-        return value
-
-def allocate_time_ms(time_left_ms: int) -> int:
-    """Rough budget for this single move. Deliberately conservative: flagging loses
-    instantly, using less time than you could does not."""
-    budget = time_left_ms / MOVES_DIVISOR + INCREMENT_MS * 0.9 - MOVE_OVERHEAD_MS
-    return max(int(budget), MIN_BUDGET_MS)
-
-def get_move(fen: str, time_left_ms: int) -> str:
-    """Return a legal move in UCI notation.
+                break
+        return best
  
-    fen           the position to move in; your colour is the side to move
-    time_left_ms  your clock before this move, in milliseconds
-    returns       "e2e4", or "e7e8q" for a promotion
+    def order(self, board, moves, ttmove, ply):
+        k1, k2 = self.killers[ply]
+        out = []
+        for m in moves:
+            if m == ttmove:
+                out.append((1 << 30, m))
+                continue
+            if board.is_capture(m) or m.promotion:
+                victim = PAWN if board.is_en_passant(m) else (board.piece_type_at(m.to_square) or 0)
+                s = 1 << 20
+                s += MVV[victim] * 16 - MVV[board.piece_type_at(m.from_square)]
+                if m.promotion:
+                    s += 1 << 21
+                out.append((s, m))
+            elif m == k1:
+                out.append((1 << 19, m))
+            elif m == k2:
+                out.append(((1 << 19) - 1, m))
+            else:
+                out.append((HISTORY.get((board.turn, m.from_square, m.to_square), 0), m))
+        out.sort(key=lambda t: t[0], reverse=True)
+        return [m for _, m in out]
  
-    The process stays alive between your moves, so state you keep on a module or in a
-    closure survives to the next call. It does not survive to the next game.
+    def search(self, board, depth, alpha, beta, ply, allow_null=True):
+        self.check()
+        if ply:
+            if board.halfmove_clock >= 100 or board.is_insufficient_material():
+                return 0
+            key0 = board._transposition_key()
+            if self.rep.get(key0, 0) >= 1:
+                return 0
+        alpha0 = alpha
+        if ply:
+            mate_a = -MATE + ply
+            if mate_a > alpha:
+                alpha = mate_a
+                if alpha >= beta:
+                    return alpha
  
-    print() is safe. Your stdout is redirected away from the protocol stream, discarded
-    during rated games and shown back to you in the validation log.
-    """
-    board = chess.Board(fen)
-    legal_moves = list(board.legal_moves)
+        key = board._transposition_key()
+        ttmove = None
+        entry = TT.get(key)
+        if entry is not None:
+            e_depth, e_score, e_flag, e_move = entry
+            ttmove = e_move
+            if ply and e_depth >= depth:
+                if e_flag == TT_EXACT:
+                    return e_score
+                if e_flag == TT_LOWER and e_score > alpha:
+                    alpha = e_score
+                elif e_flag == TT_UPPER and e_score < beta:
+                    beta = e_score
+                if alpha >= beta:
+                    return e_score
  
-    # A move is always ready before we search a single node, so a time-up (or any
-    # unexpected exception) at any point still returns something legal.
-    best_move_overall = random.choice(legal_moves)
-    if len(legal_moves) == 1:
-        return best_move_overall.uci()
+        in_check = board.is_check()
+        if in_check:
+            depth += 1
+        if depth <= 0:
+            return self.qsearch(board, alpha, beta)
  
-    budget_ms = allocate_time_ms(time_left_ms)
-    deadline = time.perf_counter() + budget_ms / 1000
+        moves = list(board.legal_moves)
+        if not moves:
+            return -MATE + ply if in_check else 0
  
-    depth = 1
-    while depth <= MAX_DEPTH:
-        searcher = Searcher(deadline)
-        ordered_moves = order_moves(board, legal_moves)
-        # Root alpha starts at -inf and beta stays +inf: unlike interior nodes, we
-        # never want a cutoff here -- we need every root move's score to pick (and
-        # break ties among) the best one. Narrowing alpha as we go still prunes
-        # deeper inside each subsequent move's subtree, which is most of the benefit.
-        alpha = -math.inf
-        best_score = -math.inf
-        best_this_depth: list[chess.Move] = []
+        # Null-move pruning
+        if (allow_null and not in_check and depth >= 3 and beta < MATE_BOUND
+                and (board.occupied_co[board.turn] & ~board.pawns & ~board.kings)):
+            r = 2 + depth // 6
+            board.push(chess.Move.null())
+            try:
+                v = -self.search(board, depth - 1 - r, -beta, -beta + 1, ply + 1, False)
+            finally:
+                board.pop()
+            if v >= beta:
+                return beta
+ 
+        best = -INF
+        best_move = None
+        ordered = self.order(board, moves, ttmove, ply)
+        self.rep[key] = self.rep.get(key, 0) + 1
         try:
-            for move in ordered_moves:
-                board.push(move)
+            for i, m in enumerate(ordered):
+                quiet = not board.is_capture(m) and not m.promotion
+                board.push(m)
                 try:
-                    score = -searcher.negamax(board, depth - 1, -math.inf, -alpha)
+                    if i == 0:
+                        v = -self.search(board, depth - 1, -beta, -alpha, ply + 1)
+                    else:
+                        red = 0
+                        if quiet and depth >= 3 and i >= 3 and not in_check:
+                            red = 1 + (i >= 6 and depth >= 5)
+                        v = -self.search(board, depth - 1 - red, -alpha - 1, -alpha, ply + 1)
+                        if alpha < v < beta:
+                            v = -self.search(board, depth - 1, -beta, -alpha, ply + 1)
                 finally:
                     board.pop()
-                if score > best_score:
-                    best_score = score
-                    best_this_depth = [move]
-                elif score == best_score:
-                    best_this_depth.append(move)
-                if score > alpha:
-                    alpha = score
+                if v > best:
+                    best, best_move = v, m
+                if v > alpha:
+                    alpha = v
+                if alpha >= beta:
+                    if quiet:
+                        kl = self.killers[ply]
+                        if kl[0] != m:
+                            kl[1] = kl[0]
+                            kl[0] = m
+                        k = (board.turn, m.from_square, m.to_square)
+                        HISTORY[k] = HISTORY.get(k, 0) + depth * depth
+                    break
+        finally:
+            c = self.rep[key] - 1
+            if c:
+                self.rep[key] = c
+            else:
+                del self.rep[key]
+ 
+        flag = TT_EXACT if alpha0 < best < beta else (TT_LOWER if best >= beta else TT_UPPER)
+        prev = TT.get(key)
+        if prev is None or prev[0] <= depth:
+            if len(TT) > 1_200_000:
+                TT.clear()
+            TT[key] = (depth, best, flag, best_move)
+        return best
+ 
+ 
+_prev_keys = []
+ 
+ 
+def allocate_time_ms(time_left_ms):
+    soft = time_left_ms / 26 + 450 - 40
+    return max(int(soft), 20)
+ 
+ 
+def get_move(fen, time_left_ms):
+    start = time.perf_counter()
+    board = chess.Board(fen)
+    legal = list(board.legal_moves)
+    if not legal:
+        return "0000"
+    best_move = legal[0]
+    if len(legal) == 1:
+        return best_move.uci()
+ 
+    rep = dict(GAME_KEYS)
+    key_now = board._transposition_key()
+    GAME_KEYS[key_now] = GAME_KEYS.get(key_now, 0) + 1
+ 
+    soft = allocate_time_ms(time_left_ms) / 1000
+    hard = min(soft * 3.0, max(time_left_ms / 1000 - 0.2, 0.02))
+    deadline = start + hard
+ 
+    searcher = Searcher(deadline, rep)
+    prev_score = 0
+    for depth in range(1, 64):
+        try:
+            if depth <= 4:
+                score = searcher.search(board, depth, -INF, INF, 0)
+            else:
+                window = 40
+                while True:
+                    a, b = prev_score - window, prev_score + window
+                    score = searcher.search(board, depth, a, b, 0)
+                    if a < score < b:
+                        break
+                    window *= 4
+                    if window > 2000:
+                        score = searcher.search(board, depth, -INF, INF, 0)
+                        break
         except TimeUp:
-            # This depth was cut short: later moves in ordered_moves got less search
-            # than earlier ones, so its results aren't comparable. Discard them and
-            # keep whatever the last fully-completed depth found.
+            break
+        entry = TT.get(key_now)
+        if entry is not None and entry[3] is not None:
+            best_move = entry[3]
+        prev_score = score
+        if abs(score) > MATE_BOUND:
+            break
+        elapsed = time.perf_counter() - start
+        if elapsed > soft * 0.55:
             break
  
-        # This depth finished cleanly -- it's now our best-known move.
-        best_move_overall = random.choice(best_this_depth)
+    after = board.copy(stack=False)
+    after.push(best_move)
+    k2 = after._transposition_key()
+    GAME_KEYS[k2] = GAME_KEYS.get(k2, 0) + 1
+    return best_move.uci()
  
-        if time.perf_counter() >= deadline:
-            break
-        depth += 1
- 
-    return best_move_overall.uci()
-
-
-
-evaluate(*encode(chess.Board()), chess.WHITE, 20)

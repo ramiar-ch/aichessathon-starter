@@ -22,11 +22,34 @@ PIECE_VALUE = [0, 100, 320, 330, 500, 900, 0]
 PHASE_W = [0, 0, 1, 1, 2, 4, 0]
 TOTAL_PHASE = 24
 
-# --- Piece-square tables -----------------------------------------------------
-# Indexed 0 (a1) .. 63 (h8), from White's perspective: a bonus/penalty in centipawns
-# for a piece of that type standing on that square, on top of its raw material value.
-# For a Black piece, look up square ^ 56 instead (flips the rank, keeps the file --
-# the standard trick for reusing a White-oriented table for the mirrored side).
+# --- Piece-square tables (PSTs) ----------------------------------------------
+# Each table is a 64-element array giving a centipawn bonus/penalty for placing that
+# piece type on that square. Added on top of the piece's raw material value.
+#
+# LAYOUT: index 0 = a1, 7 = h1, 8 = a2, ..., 63 = h8. Written from White's
+# perspective, rank 1 (White's back rank) at the top of each literal array,
+# rank 8 at the bottom. For a Black piece, look up (square ^ 56), which flips
+# the rank so Black's back rank maps to the same table rows as White's.
+#
+# HOW TO READ THEM:
+#   PAWN_PST   - penalises flank pawns on rank 2 (-20 for d/e), rewards centre
+#                control on ranks 4-5 (+25), and heavily rewards advanced pawns
+#                on ranks 6-7 (+50). Rank 1 and 8 are 0 (pawns can't stand there).
+#   KNIGHT_PST - strong centre preference (+20 on d4/d5/e4/e5), heavy edge
+#                penalty (-50 on corners). "A knight on the rim is dim."
+#   BISHOP_PST - rewards diagonals and central squares, penalises edges.
+#   ROOK_PST   - bonus on the 7th rank (+10, where rooks are powerful) and a
+#                small preference for the d/e files (+5 on rank 1).
+#   QUEEN_PST  - mild centre preference; avoids the corners and edges.
+#   KING_MID   - strongly rewards castled positions (g1/b1 = +30), heavily
+#                penalises a king in the centre or advanced (-40 to -50).
+#   KING_END   - opposite of middlegame: rewards centralisation (+40 on d4/e4),
+#                penalises edges/corners. The king should be active in the endgame.
+#
+# WEAKNESS: only one pawn table (middlegame-oriented). In the endgame, advanced
+# pawns close to promotion should be worth much more. A separate PAWN_EG table
+# with a tapered phase interpolation would fix this. Also, these are the stock
+# chessprogramming.org values -- tuning them (e.g. Texel tuning) would help.
 # These are the widely-used "simplified evaluation function" tables
 # (chessprogramming.org) -- a reasonable starting point, not hand-tuned for this eval.
 
